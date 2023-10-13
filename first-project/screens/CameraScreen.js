@@ -1,124 +1,138 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
-import Constants from 'expo-constants';
-import { Camera, CameraType } from 'expo-camera';
-import * as MediaLibrary from 'expo-media-library'; //사진저장
-import { MaterialIcons } from '@expo/vector-icons';
-import Button from '../components/Button';
+import React, { useState, useRef, useEffect } from "react";
+import {
+  StyleSheet,
+  Dimensions,
+  View,
+  Text,
+  TouchableOpacity,
+} from "react-native";
+import { Camera } from "expo-camera";
+import { AntDesign, MaterialIcons } from "@expo/vector-icons";
 
-export default function CameraScreen({navigation}) {
-  const [hasCameraPermission, setHasCameraPermission] = useState(null);
-  const [image, setImage] = useState(null);
-  const [type, setType] = useState(Camera.Constants.Type.back);
-  const [flash, setFlash] = useState(Camera.Constants.FlashMode.off);
-  const cameraRef = useRef(null);
+const WINDOW_HEIGHT = Dimensions.get("window").height;
+const CAPTURE_SIZE = Math.floor(WINDOW_HEIGHT * 0.08);
+
+export default function CameraScreen({ navigation }) {
+  const cameraRef = useRef();
+  const [hasPermission, setHasPermission] = useState(null);
+  const [cameraType, setCameraType] = useState(Camera.Constants.Type.back);
+  const [isPreview, setIsPreview] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [imgsource, setImgsource] = useState();
 
   useEffect(() => {
-    (async () => {
-      MediaLibrary.requestPermissionsAsync();
-      const cameraStatus = await Camera.requestCameraPermissionsAsync();
-      setHasCameraPermission(cameraStatus.status === 'granted');
-    })();
+    onHandlePermission();
   }, []);
 
-  const takePicture = async () => {
-    if (cameraRef) {
-      try {
-        const data = await cameraRef.current.takePictureAsync();
-        console.log(data);
-        setImage(data.uri);
-      } catch (error) {
-        console.log(error);
-      }
-    }
+  const onHandlePermission = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync();
+    setHasPermission(status === "granted");
   };
 
-  const savePicture = async () => {
-    if (image) {
-      try {
-        const asset = await MediaLibrary.createAssetAsync(image);
-        Alert.alert(
-            '저장 완료', 
-            '갤러리에 저장되었습니다! 🎉',
-            [
-              {
-                text: 'OK',
-                onPress: () => navigation.navigate('Home3')
-              }
-            ]
-        );
-        setImage(null);
-        console.log('saved successfully');
-      } catch (error) {
-        console.log(error);
-      }
-    }
+  const onCameraReady = () => {
+    setIsCameraReady(true);
   };
 
-  if (hasCameraPermission === false) {
-    return <Text>No access to camera</Text>;
+  const switchCamera = () => {
+    if (isPreview) {
+      return;
+    }
+    setCameraType((prevCameraType) =>
+      prevCameraType === Camera.Constants.Type.back
+        ? Camera.Constants.Type.front
+        : Camera.Constants.Type.back
+    );
+  };
+
+  if (hasPermission === null) {
+    return <View />;
+  }
+  if (hasPermission === false) {
+    return <Text style={styles.text}>No access to camera</Text>;
   }
 
+  const cancelPreview = async () => {
+    await cameraRef.current.resumePreview();
+    setIsPreview(false);
+  };
+
+  const postPreview = async () => {
+    if (imgsource) {
+      let base64Img = `data:image/jpg;base64,${imgsource}`;
+      let url = "http://192.168.45.91:8000/api/photos/";
+      let data = {
+        photo: base64Img,
+      };
+      fetch(url, {
+        body: JSON.stringify(data),
+        headers: {
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
+        .then((res) => {
+          console.log("성공");
+          navigation.navigate("Home3");
+        })
+        .catch((err) => {
+          console.log("에러");
+          console.log(err.response);
+        });
+    }
+  };
+  const onSnap = async () => {
+    if (cameraRef.current) {
+      const options = { quality: 0.7, base64: true };
+      const data = await cameraRef.current.takePictureAsync(options);
+      const source = data.base64;
+
+      if (source) {
+        await cameraRef.current.pausePreview();
+        setIsPreview(true);
+        setImgsource(source);
+      }
+    }
+  };
   return (
     <View style={styles.container}>
-      {!image ? (
-        <Camera
-          style={styles.camera}
-          type={type}
-          ref={cameraRef}
-          flashMode={flash}
-        >
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              paddingHorizontal: 30,
-            }}
-          >
-            <Button
-              title=""
-              icon="retweet"
-              onPress={() => {
-                setType(
-                  type === CameraType.back ? CameraType.front : CameraType.back
-                );
-              }}
-            />
-            <Button
-              onPress={() =>
-                setFlash(
-                  flash === Camera.Constants.FlashMode.off
-                    ? Camera.Constants.FlashMode.on
-                    : Camera.Constants.FlashMode.off
-                )
-              }
-              icon="flash"
-              color={flash === Camera.Constants.FlashMode.off ? 'gray' : '#fff'}
-            />
-          </View>
-        </Camera>
-      ) : (
-        <Image source={{ uri: image }} style={styles.camera} />
-      )}
+      <Camera
+        ref={cameraRef}
+        style={styles.container}
+        type={cameraType}
+        onCameraReady={onCameraReady}
+      />
 
-      <View style={styles.controls}>
-        {image ? (
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              paddingHorizontal: 50,
-            }}
-          >
-            <Button
-              title="화면전환"
-              onPress={() => setImage(null)}
-              icon="retweet"
-            />
-            <Button title="저장하기" onPress={savePicture} icon="check" />
+      <View style={styles.container}>
+        {isPreview && (
+          <View>
+            <TouchableOpacity
+              onPress={cancelPreview}
+              style={styles.closeButton}
+              activeOpacity={0.7}
+            >
+              <AntDesign name="close" size={32} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={postPreview}
+              style={styles.checkButton}
+              activeOpacity={0.7}
+            >
+              <AntDesign name="check" size={32} color="#fff" />
+            </TouchableOpacity>
           </View>
-        ) : (
-          <Button title="사진찍고 인증하기" onPress={takePicture} icon="camera" />
+        )}
+        {!isPreview && (
+          <View style={styles.bottomButtonsContainer}>
+            <TouchableOpacity disabled={!isCameraReady} onPress={switchCamera}>
+              <MaterialIcons name="flip-camera-ios" size={28} color="white" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              disabled={!isCameraReady}
+              onPress={onSnap}
+              style={styles.capture}
+            />
+          </View>
         )}
       </View>
     </View>
@@ -127,33 +141,50 @@ export default function CameraScreen({navigation}) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingTop: Constants.statusBarHeight,
-    backgroundColor: '#000',
-    padding: 8,
-  },
-  controls: {
-    flex: 0.5,
-  },
-  button: {
-    height: 40,
-    borderRadius: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...StyleSheet.absoluteFillObject,
   },
   text: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    color: '#E9730F',
-    marginLeft: 10,
+    color: "#fff",
   },
-  camera: {
-    flex: 5,
-    borderRadius: 20,
+  bottomButtonsContainer: {
+    position: "absolute",
+    flexDirection: "row",
+    bottom: 28,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  topControls: {
-    flex: 1,
+  capture: {
+    backgroundColor: "#ffce57",
+    borderRadius: 5,
+    height: CAPTURE_SIZE,
+    width: CAPTURE_SIZE,
+    borderRadius: Math.floor(CAPTURE_SIZE / 2),
+    marginBottom: 28,
+    marginHorizontal: 30,
+  },
+  closeButton: {
+    position: "absolute",
+    top: 40,
+    left: 20,
+    height: 50,
+    width: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#ffce57",
+    opacity: 0.7,
+  },
+  checkButton: {
+    position: "absolute",
+    top: 40,
+    right: 20,
+    height: 50,
+    width: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#ffce57",
+    opacity: 0.7,
   },
 });

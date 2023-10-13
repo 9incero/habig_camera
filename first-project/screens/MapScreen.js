@@ -6,8 +6,8 @@ import React, { useState, useEffect } from 'react';
 import * as Location from 'expo-location';
 import MapView, {PROVIDER_GOOGLE, Marker} from 'react-native-maps';
 
-now_lat = 0
-now_long = 0
+let now_lat = 0
+let now_long = 0
 
 function MapScreen({navigation}) {
   const [city, setCity] = useState("Loading...")
